@@ -88,6 +88,48 @@ are touched.
 Drop `vibe.md` in any repo whose diffs you actually read: it tells Claude to
 keep code out of its replies, which is wrong when you want to see it.
 
+## Claude Code on the web
+
+A web session runs in a throwaway container: nothing from your machine is there
+— no `~/Skills`, no `~/.claude/settings.json`. The user-scope hook above does
+not apply, so the setup has to travel with the project.
+
+Commit two files into the repo you work on:
+
+- `.claude/hooks/session-start.sh` — copy [`install/project/session-start.sh`](install/project/session-start.sh).
+- `.claude/settings.json` — copy [`install/project/settings.json`](install/project/settings.json),
+  or merge its `hooks` block into the file if the repo already has one.
+
+The hook clones `~/Skills` into the container and runs the same install, so a
+web session ends up with the fragments, skills, agents and commands that a local
+one has. It is the natural place for the rest of the project's setup too —
+dependency installs, generated clients, environment variables — which is what
+makes tests and linters actually runnable in a fresh container. Add those under
+the "Project setup" section at the bottom of the script, guarded by
+`$CLAUDE_CODE_REMOTE` when they are slow and only needed on the web.
+
+It runs **synchronously**: the session waits for it. That is the point — a
+project's `@~/Skills/...` imports have to resolve when its `CLAUDE.md` is read,
+and an async hook would start the session while the clone is still going. The
+cost is a slower session start; the container is snapshotted afterwards, so it
+is mostly paid once per environment.
+
+Two things to know:
+
+- **This repo must be public** for the clone to work, or the container has no
+  credentials for it. That is why nothing project-specific, no credential and no
+  internal URL ever goes in here — the rule at the bottom of this page is what
+  makes publishing it safe.
+- **`$HOME` is not the workspace.** In a web container the project lives under
+  `/home/user/` while `$HOME` is `/root`, so `~/Skills` and `~/.claude` are the
+  right targets and the imports resolve as they do locally. Skills, agents and
+  commands installed by the hook may only be picked up from the next session on
+  that environment, since they are read at startup — the fragments, which are
+  imports, are available immediately.
+
+Merge this into the repo's default branch: a hook only applies to sessions
+started from a branch that has it.
+
 ## Fragments
 
 | File | Contents |
@@ -160,6 +202,11 @@ fragments the project imports.
 Everything here is **project-agnostic**: no project names, no credentials, no
 internal URLs or ids, no host names. Anything specific belongs in the consuming
 project's own `CLAUDE.md`.
+
+This repo is public, so that a web container can clone it without credentials.
+That makes the rule above a security boundary rather than a preference: anything
+committed here is world-readable, permanently, even if a later commit removes
+it.
 
 One file, one theme. A new cross-cutting default goes to `general.md`; a new
 language gets its own `<lang>-style.md`.
